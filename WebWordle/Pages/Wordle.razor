@@ -1,0 +1,251 @@
+﻿@page "/wordle"
+@inject IJSRuntime JS
+@inject HttpClient Http
+
+
+@if (w == null)
+{
+    <p>Not loaded yet.</p>
+}
+else
+{
+    <div class="container-fluid jumbotron" @onkeydown="KeyDown" tabindex="0">
+        @for (int i = 0; i < w.AllowedTries; i++)
+        {
+            <div class="Row ">
+                @for (int j = 0; j < w.WordLength; j++)
+                {
+                    <div class="Row-letter @CssClassOfLetterAt(i, j)" data-animation="none">
+                        @if (w.Attempts.Any())
+                        {
+                            if (j <= w.Attempts[i].Length - 1)
+                            {
+                                @w.Attempts[i].ElementAt(j).ToString(); //letter
+                            }
+                        }
+                    </div>
+                }
+            </div>
+        }
+        <br>
+        <div class="keyboard" style="display: flex">
+            @foreach (var x in w.Keyset_state)
+            {
+                <div style="" class="Row-letter @x.Value">@x.Key</div>
+            }
+        </div>
+    </div>
+
+
+    <Dialog Size="@(DialogSize.Small)" Centered="true" IsShowing="@isShowingGameWon" Animation="DialogAnimation.None">
+        <DialogHeader>
+            <h4>You won</h4>
+        </DialogHeader>
+        <DialogBody>
+            <p>Play again?</p>
+        </DialogBody>
+        <DialogFooter>
+            <button type="button" class="btn btn-primary" @onclick="PlayAgain">Yes</button>
+            <button type="button" class="btn btn-secondary" @onclick="@(() => { isShowingGameWon = false; })">No</button>
+        </DialogFooter>
+    </Dialog>
+
+    <Dialog Size="@(DialogSize.Small)" Centered="true" IsShowing="@isShowingGameLost" Animation="DialogAnimation.None">
+        <DialogHeader>
+            <h4>You lost</h4>
+        </DialogHeader>
+        <DialogBody>
+            <p>Word was @last_secret</p>
+            <p>Play again?</p>
+        </DialogBody>
+        <DialogFooter>
+            <button type="button" class="btn btn-primary" @onclick="PlayAgain">Yes</button>
+            <button type="button" class="btn btn-secondary" @onclick="@(() => { isShowingGameLost = false; })">No</button>
+        </DialogFooter>
+    </Dialog>
+}
+
+
+@code {
+    private WordleLib.Wordle w;
+
+    private string wordbank_filename = "words.txt";
+    private string keyset_string = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";// = "АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЬЮЯ";//
+
+    private string current_word = "";
+    private int activeRow = 0;
+
+    private bool isShowingGameWon = false;
+    private bool isShowingGameLost = false;
+    private string last_secret = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        string wordbank = await Http.GetStringAsync($"words/{wordbank_filename}");
+        w = new(wordlist: wordbank.Split("\r\n").ToList(),
+                keyset: keyset_string);
+
+        w.GameLost += GameLost;
+        w.GameWon += GameWon;
+        w.WordNotFound += async (x) =>
+        {
+            await JS.InvokeVoidAsync("alert", x);
+        };
+    }
+
+    private void KeyDown(KeyboardEventArgs e)
+    {
+        if (w == null)
+        {
+            return;
+        }
+
+        if (e.Key.Length == 1 && current_word.Length < w.WordLength)
+        {
+            current_word += e.Key;
+            w.Attempts[activeRow] = current_word;
+        }
+
+        if (e.Key == "Backspace" && current_word.Length > 0)
+        {
+            current_word = current_word.Remove(current_word.Length - 1);
+            w.Attempts[activeRow] = current_word;
+        }
+
+        if (e.Key == "Enter" && activeRow <= w.AllowedTries && current_word.Length == w.WordLength)
+        {
+            w.TryWord(current_word);
+
+            LogGame();
+
+            //proceed to next line
+            if (!string.IsNullOrEmpty(w.Attempts[activeRow]) && !w.IsAttemptNotFound)
+            {
+                activeRow++;
+            }
+            else
+            {
+                w.Attempts[activeRow] = "";
+                StateHasChanged();
+            }
+
+            current_word = "";
+        }
+    }
+
+    private void GameWon()
+    {
+        isShowingGameWon = true;
+    }
+
+    private void GameLost(string secret)
+    {
+        isShowingGameLost = true;
+
+        last_secret = secret;
+    }
+
+    private void PlayAgain()
+    {
+        w.Reset();
+        activeRow = 0;
+
+        isShowingGameWon = false;
+        isShowingGameLost = false;
+    }
+
+    private string CssClassOfLetterAt(int row, int col)
+    {
+        if (w != null)
+        {
+            if (w.Matches.Count > row)
+            {
+                if (w.Matches[row].Count > col)
+                {
+                    return w.Matches[row][col].ToString();
+                }
+            }
+        }
+        return "";
+    }
+    private async void LogGame()
+    {
+        string test = "";
+        if (w.Matches.Count > 0)
+        {
+            w.Matches.Last().ForEach(x =>
+            {
+                switch (x)
+                {
+                    case WordleLib.Wordle.MatchType.Exact:
+                        test += "✅";
+                        break;
+                    case WordleLib.Wordle.MatchType.Somewhere:
+                        test += "🔃";
+                        break;
+                    case WordleLib.Wordle.MatchType.Nowhere:
+                        test += "❌";
+                        break;
+                    default:
+                        break;
+                }
+            });
+        }
+        await JS.InvokeVoidAsync("console.log", $"MF wordle {test}");
+    }
+}
+
+<style>
+    .container {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        margin: 0 auto;
+        max-width: 600px;
+        width: 100%;
+        position: relative;
+        background-color: aliceblue
+    }
+
+    .keyboard {
+        flex-wrap: wrap;
+    }
+
+    .Row,
+    .Row-letter {
+        display: flex;
+        justify-content: center
+    }
+
+    .Row-letter {
+        align-items: center;
+        border: 2px solid #dee1e9;
+        font-size: 28px;
+        font-weight: 700;
+        height: 64px;
+        margin: 3px;
+        text-transform: uppercase;
+        width: 64px;
+        border-radius: 5px;
+        color: #393e4c;
+        background: #fbfcff
+    }
+
+    .Exact {
+        background-color: #79b851 !important;
+        border: 2px solid #79b851 !important;
+        color: #fff !important
+    }
+
+    .Somewhere {
+        background-color: #f3c237 !important;
+        border: 2px solid #f3c237 !important;
+        color: #fff !important
+    }
+
+    .Nowhere {
+        background-color: #a4aec4 !important;
+        border: 2px solid transparent !important;
+        color: #fff !important
+    }
+</style>

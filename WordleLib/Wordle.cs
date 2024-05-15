@@ -87,7 +87,7 @@ namespace WordleLib
             if (attempt.Length < WordLength || Attempts.Last().Length > WordLength)
             {
                 IsAttemptTooShort = true;
-                WordTooShort?.Invoke($"word length must be {WordLength}");
+                WordTooShort?.Invoke($"word length must be {WordLength} letters");
 
                 return;
             }
